@@ -1,0 +1,51 @@
+package sfis.raspberrypi.piclient.agent.service.proxy;
+
+/**
+ * 請求器的簡單工廠
+ */
+public class RequesterFactory {
+    public static Requester createRequester(String uri, RequestBody requestBody, MethodType method) {
+        Requester requester = null;
+        requestBody.setMethod(method.getMethod());
+        switch (method) {
+            // 取得對應DB
+            case ToolsQApi_SysApp_GetSoaAppDb:
+                requester = new SoaAppDbRequester(uri, requestBody);
+                break;
+
+            // 取得Proxy 服務位置
+            case ToolsQApi_SysApp_QueryAppUrl:
+                requester = new QueryAppUrlRequester(uri, requestBody);
+                break;
+
+            //取得 Resource
+            case ToolsQApi_ApiConfig_QueryQConfig:
+                requester = new ResourceRequester(uri, requestBody);
+                break;
+
+            case PKG_CT_GET_APP_CLIENT_CFG:
+                requester = new ClientConfigRequester(uri, requestBody);
+                break;
+
+            case PKG_ESOP_JSON_GET_DEVICE:
+                requester = new DeviceInfoRequester(uri, requestBody);
+                break;
+
+            case PKG_SYS_GET_BASE_APP_CFG:
+                requester = new BaseConfigRequester(uri, requestBody);
+                break;
+
+            case PKG_CT_UPD_DEV_MACID:
+                requester = new UpdateDeviceRequester(uri, requestBody);
+                break;
+
+            case PKG_ESOP_JSON_CENTRIC:
+                requester = new CallCentricRequester(uri, requestBody);
+                break;
+
+            default:
+                break;
+        }
+        return requester;
+    }
+}
