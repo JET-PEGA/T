@@ -1,0 +1,79 @@
+    <!-- https://mvnrepository.com/artifact/org.apache.pdfbox/pdfbox -->
+    <dependency>
+      <groupId>org.apache.pdfbox</groupId>
+      <artifactId>pdfbox</artifactId>
+      <version>2.0.21</version>
+    </dependency>
+    
+    
+    /**
+     * 列印標籤
+     *
+     * @param printerName
+     * @param filename
+     */
+    public void printLabel(String printerName, String fileName) {
+        PDDocument document = null;
+        try {
+            document = PDDocument.load(new File(fileName));
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+
+        // 取得印表機
+        PrintService printService = null;
+        PrintService[] printServices = PrinterJob.lookupPrintServices();
+        if (printServices == null || printServices.length == 0) {
+            outputLog("lookupPrintServices:" + printServices.length);
+        } else {
+
+            for (int i = 0; i < printServices.length; i++) {
+                if (printServices[i].getName().equalsIgnoreCase(printerName)) {
+                    outputLog("Printer: " + printServices[i].getName());
+                    printService = printServices[i];
+                    break;
+                }
+            }
+        }
+
+        // 取得紙張大小
+        PDPage page = document.getPage(0);
+        double width2 = page.getMediaBox().getWidth(); // getMediaBox instead of find
+        double height2 = page.getMediaBox().getHeight(); // getMediaBox instead of find
+        outputLog(String.format("width:%f", width2));
+        outputLog(String.format("height:%f", height2));
+
+
+        PDFPrintable pdfPrintable = new PDFPrintable(document, Scaling.ACTUAL_SIZE); // 實際大小?
+
+        Paper paper = new Paper();
+//        int width = 2480;
+//        int height = 3508;
+//        int marginLeft = 0;
+//        int marginRight = 0;
+//        int marginTop = 0;
+//        int marginBottom = 0;
+//        paper.setSize(width2, height2);
+//        paper.setImageableArea(marginLeft, marginRight, width - (marginLeft + marginRight), height - (marginTop + marginBottom));
+//        paper.setSize(width2 + 200, height2 + 200);
+        paper.setImageableArea(30, 30, width2 + 150, height2 + 150);
+        PageFormat pageFormat = new PageFormat();
+        pageFormat.setOrientation(PageFormat.PORTRAIT); // LANDSCAPE(橫) PORTRAIT(縱)
+
+        pageFormat.setPaper(paper);
+
+        Book book = new Book();
+        book.append(pdfPrintable, pageFormat);
+
+        PrinterJob printerJob = PrinterJob.getPrinterJob();
+        try {
+            printerJob.setPageable(book);
+            printerJob.setPrintService(printService); // 選擇印表機
+            printerJob.print();
+            outputLog("Success");
+
+        } catch (PrinterException ex) {
+            ex.printStackTrace();
+        }
+
+    }
