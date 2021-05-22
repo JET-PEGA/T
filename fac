@@ -49,3 +49,129 @@ public class RequesterFactory {
         return requester;
     }
 }
+
+
+package sfis.raspberrypi.piclient.agent.service.proxy;
+
+import com.fasterxml.jackson.databind.JsonNode;
+
+import java.util.Hashtable;
+
+public class SoaAppDbRequester extends Requester {
+
+    /**
+     * 建構子
+     *
+     * @param uri         服務位置
+     * @param requestBody 請求本文
+     */
+    public SoaAppDbRequester(String uri, RequestBody requestBody) {
+        super(uri, requestBody);
+    }
+
+    /**
+     * 檢查請求參數，是否符合規範
+     *
+     * @param parameters
+     */
+    @Override
+    public void checkRequest(Hashtable parameters) {
+
+
+    }
+
+    /**
+     * 建立回傳結果
+     *
+     * @param node
+     */
+    @Override
+    public ResponseBody createResponse(JsonNode result) {
+
+        ResponseBody responseBody = new ResponseBody(result);
+        String sfisDb = result.at("/P_Dtl/RETURN1/INFO/sfisDb").asText("");
+        responseBody.put("sfisDb", sfisDb);
+        return responseBody;
+    }
+}
+
+
+package sfis.raspberrypi.piclient.agent.service.proxy;
+
+public enum MethodType {
+    /**
+     * 取得對應DB
+     */
+    ToolsQApi_SysApp_GetSoaAppDb {
+        public String getMethod() {
+            return "ToolsQApi-SysApp-GetSoaAppDb";
+        }
+    },
+
+    /**
+     * 取得Proxy 服務位置
+     */
+    ToolsQApi_SysApp_QueryAppUrl {
+        public String getMethod() {
+            return "ToolsQApi-SysApp-QueryAppUrl";
+        }
+    },
+
+    /**
+     *
+     */
+    ToolsQApi_ApiConfig_QueryQConfig {
+        public String getMethod() {
+            return "ToolsQApi-ApiConfig-QueryQConfig";
+        }
+    },
+
+    /**
+     *
+     */
+    PKG_CT_GET_APP_CLIENT_CFG {
+        public String getMethod() {
+            return "PKG_CT.GET_APP_CLIENT_CFG";
+        }
+    },
+
+    /**
+     *
+     */
+    PKG_ESOP_JSON_GET_DEVICE {
+        public String getMethod() {
+            return "PKG_ESOP_JSON.GET_DEVICE";
+        }
+    },
+
+    /**
+     *
+     */
+    PKG_SYS_GET_BASE_APP_CFG {
+        public String getMethod() {
+            return "PKG_SYS.GET_BASE_APP_CFG";
+        }
+    },
+
+
+
+    /**
+     *
+     */
+    PKG_CT_UPD_DEV_MACID {
+        public String getMethod() {
+            return "PKG_CT.UPD_DEV_MACID";
+        }
+    },
+
+    /**
+     *
+     */
+    PKG_ESOP_JSON_CENTRIC {
+        public String getMethod() {
+            return "PKG_ESOP_JSON.CENTRIC";
+        }
+    };
+
+    public abstract String getMethod();
+}
