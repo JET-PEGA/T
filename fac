@@ -175,3 +175,222 @@ public enum MethodType {
 
     public abstract String getMethod();
 }
+
+
+
+package sfis.raspberrypi.piclient.agent.service.proxy;
+
+import com.fasterxml.jackson.databind.JsonNode;
+
+import java.util.Hashtable;
+
+public class SoaAppDbRequester extends Requester {
+
+    /**
+     * 建構子
+     *
+     * @param uri         服務位置
+     * @param requestBody 請求本文
+     */
+    public SoaAppDbRequester(String uri, RequestBody requestBody) {
+        super(uri, requestBody);
+    }
+
+    /**
+     * 檢查請求參數，是否符合規範
+     *
+     * @param parameters
+     */
+    @Override
+    public void checkRequest(Hashtable parameters) {
+
+
+    }
+
+    /**
+     * 建立回傳結果
+     *
+     * @param node
+     */
+    @Override
+    public ResponseBody createResponse(JsonNode result) {
+
+        ResponseBody responseBody = new ResponseBody(result);
+        String sfisDb = result.at("/P_Dtl/RETURN1/INFO/sfisDb").asText("");
+        responseBody.put("sfisDb", sfisDb);
+        return responseBody;
+    }
+}
+
+
+package sfis.raspberrypi.piclient.agent.service.proxy;
+
+import com.fasterxml.jackson.databind.JsonNode;
+
+import java.util.Hashtable;
+
+/**
+ * 呼叫Proxy 的回應主體類別
+ */
+public class ResponseBody {
+
+    /**
+     * pRet
+     */
+    private int pRet;
+
+    /**
+     * 取得 pRet
+     * @return
+     */
+    public int getP_Ret() {
+        return pRet;
+    }
+
+    /**
+     * 設定 pRet
+     * @param ret
+     */
+    public void setP_Ret(int pRet) {
+        this.pRet = pRet;
+    }
+
+    /**
+     * pMsg
+     */
+    private String pMsg;
+
+    /**
+     * 取得 pMsg
+     * @return
+     */
+    public String getP_Msg() {
+        return pMsg;
+    }
+
+    /**
+     * 設定 pMsg
+     * @param msg
+     */
+    public void setP_Msg(String pMsg) {
+        this.pMsg = pMsg;
+    }
+
+    /**
+     * pSid
+     */
+    private String pSid;
+
+    /**
+     * 取得 pSid
+     * @return
+     */
+    public String getP_Sid() {
+        return pSid;
+    }
+
+    /**
+     * 設定 pSid
+     * @param sid
+     */
+    public void setP_Sid(String pSid) {
+        this.pSid = pSid;
+    }
+
+
+    /**
+     * 回傳結果字典
+     */
+    private Hashtable<String, Object> resultDict = new Hashtable<String, Object>();
+
+    JsonNode body = null;
+
+    /**
+     * 建構子
+     */
+    public ResponseBody() {
+
+    }
+
+    /**
+     * 建構子
+     *
+     * @param body
+     */
+    public ResponseBody(JsonNode body) {
+        this.body = body;
+    }
+
+//    /**
+//     * @param body
+//     */
+//    public void setBody(JsonNode body) {
+//        this.body = body;
+//    }
+
+    /**
+     * 將資料, 推入結果字典
+     *
+     * @param key
+     * @param value
+     */
+    public void put(String key, Object value) {
+        resultDict.put(key, value);
+    }
+
+    /**
+     * 指定 key 取得字串值
+     *
+     * @param key
+     * @return
+     */
+    public String getString(String key) {
+        return String.valueOf(resultDict.get(key));
+    }
+
+
+
+    /**
+     * 指定 key 取得整數值
+     *
+     * @param key
+     * @return
+     */
+    public int getInt(String key) {
+        return Integer.parseInt(resultDict.get(key).toString());
+    }
+
+    /**
+     * 指定 key 取得字串值
+     *
+     * @param key
+     * @return
+     */
+    public String getJson(String key) {
+        return resultDict.get(key).toString();
+    }
+
+    /**
+     * 指定 結果字典
+     *
+     * @param key
+     * @return
+     */
+    public Hashtable<String, Object> getResultDict() {
+        return resultDict;
+    }
+
+    public String toJson() {
+        return this.body.toPrettyString();
+    }
+
+    /**
+     * @return
+     */
+    @Override
+    public String toString() {
+        return this.body.toPrettyString();
+    }
+
+}
+
