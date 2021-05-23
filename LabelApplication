@@ -1,0 +1,272 @@
+package sfis.label;
+
+import com.stimulsoft.base.serializing.StiDeserializationException;
+import com.stimulsoft.report.StiReport;
+import com.stimulsoft.report.StiSerializeManager;
+
+import com.stimulsoft.report.components.StiPage;
+import com.stimulsoft.report.enums.StiExportFormat;
+import com.stimulsoft.report.export.service.StiJpegExportService;
+import com.stimulsoft.report.export.service.StiPdfExportService;
+import com.stimulsoft.report.export.service.StiPngExportService;
+import com.stimulsoft.report.export.settings.StiJpegExportSettings;
+import com.stimulsoft.report.export.settings.StiPdfExportSettings;
+import com.stimulsoft.report.export.settings.StiPngExportSettings;
+import com.stimulsoft.report.export.tools.StiColorImageFormat;
+import com.stimulsoft.report.export.tools.StiImageType;
+import com.stimulsoft.report.export.tools.StiMonochromeDitheringType;
+import com.stimulsoft.report.print.StiPrintHelper;
+
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.xml.sax.SAXException;
+import javax.print.*;
+import java.awt.print.*;
+import java.io.*;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+
+@SpringBootApplication
+public class LabelApplication implements CommandLineRunner {
+    // windows 設定
+//    final String OUT_PATH = "D:/zebra";
+//    final String MRT_PATH = "D:/zebra/35800134_LAB_1.0.0.1.mrt";
+
+
+    // Linux 設定
+    final String OUT_PATH = "/home/pi/piclient";
+    final String MRT_PATH = "/home/pi/SFIS/Data/AP000000111/Template/35800134_LAB_1.0.0.1.mrt";
+
+
+    public static void main(String[] args) {
+
+        // 設定 licenses key
+        com.stimulsoft.base.licenses.StiLicense.setKey("6vJhGtLLLz2GNviWmUTrhSqnOItdDwjBylQzQcAOiHkJXag9EplRT7fxJppbZ2vIpAAsIxbgnpIBCRdupvVVjf3SiE" +
+                "8lUHBQIYIDc7SBT9YOo+vxjCjggUm3R7T8EIv4vnBITxQDi8dlvGc2h7mTgOIRPZMdjgcpS/3cOx70RU1BYdw5lyaz" +
+                "3+TeIb4UWXYJ1bw9H+2VwNjA3NHWO1h2ucRUSICbUORlZd1LLv29TnjnU8IFnw+jCOMxP8S/rk7jH08ykROvim8b50" +
+                "nWJL26v5JzHwe5tH5Vd8HKJHS6VfncromJn7WMEhEfqXytmXsnhXSsOc7Lo3Do8oibhnEVf5sc9z/o4IianhrtBFKk" +
+                "ll6Q+fs0QZu+QYfM6q8G/FFJxiF1/PPHR15D2qQ1WMLOROgbk6XO+QaLocTIvGT6vh4sK/WUDh1xeHb/yberEmYVQ/" +
+                "bM8jQaQDwM9sx8860HCg2E+98/eWBppMrHFvPVCDr3eZzjiB16pYPTXAy3AUYH9lJllCiqCyuloeOaUSGvvngqqKh2" +
+                "F4L5PjUjlEkOjNIvfW+tM6/AT4gs3rxmaO9a");
+
+        SpringApplication.run(LabelApplication.class, args);
+    }
+
+    /**
+     * 依指定的印表機名稱, 取得印表機物件 PrintService
+     *
+     * @param printerName 印表機名稱
+     * @return
+     */
+    private PrintService getPrinter() {
+        PrintService printService = null;
+
+        // 取得印表機名稱
+        String printerName = null;
+        String os = System.getProperty("os.name").toLowerCase();
+        if (os.indexOf("win") >= 0) {
+            printerName = "Zebra GK888t - EPL";
+        } else {
+            printerName = "GK888t";
+        }
+
+        // 取得印表機
+
+        PrintService[] printServices = PrinterJob.lookupPrintServices();
+        if (printServices != null) {
+            for (int i = 0; i < printServices.length; i++) {
+                String printName = printServices[i].getName();
+                if (printName.equals(printerName)) {
+                    printService = printServices[i];
+                }
+            }
+        }
+
+        return printService;
+    }
+
+
+    /**
+     * 輸出 Log (時間 @PiClient> )
+     *
+     * @param value
+     */
+    private void outputLog(String value) {
+        String time = new SimpleDateFormat("HH.mm.ss.SSS").format(new Date());
+        System.out.println(time + " @PiClient> " + value);
+    }
+
+    @Override
+    public void run(String... args) {
+
+
+        outputLog("===== 列印開始 =====");
+        // -------------------------------------------------------------------------------------------------------------
+        // PrinterUtil
+        PrintService printService = getPrinter(); // 取得印表機服務
+        PrinterJob printJob = PrinterJob.getPrinterJob();
+        try {
+            printJob.setPrintService(printService);
+        } catch (PrinterException e) {
+            e.printStackTrace();
+        }
+        PrinterUtil util = new PrinterUtil(printJob);
+        byte[] imageByteArray = exportJpegByteArray(getStiReport(MRT_PATH, "None"), 203, StiMonochromeDitheringType.None);
+        util.printImage(imageByteArray, 203);
+
+
+        outputLog("===== 列印結束 =====");
+    }
+
+
+    /**
+     * 將 stiReport 匯出JPEG檔案
+     *
+     * @param stiReport
+     * @param imageResolution
+     * @param fileName
+     */
+    private String exportJpeg(StiReport stiReport, int imageResolution) {
+        String fileName = null;
+        StiJpegExportService exportService = new StiJpegExportService();
+        // 輸出成JPG
+        try {
+            String extension = "jpeg";
+            fileName = String.format("%s/label-%dDPI.%s", OUT_PATH, imageResolution, extension);
+            StiJpegExportSettings exportSettings = new StiJpegExportSettings();
+            exportSettings.setImageFormat(StiColorImageFormat.Grayscale);   // 灰階(黑白反而粗糙)
+            exportSettings.setDitheringType(StiMonochromeDitheringType.FloydSteinberg); // 單色抖動類型
+            exportSettings.setImageType(StiImageType.Jpeg);                      // 格式"
+            exportSettings.setImageResolution(imageResolution);             // 解析度
+            exportSettings.setExportFormat(StiExportFormat.ImageJpeg);
+            FileOutputStream file = new FileOutputStream(fileName);
+            exportService.exportImage(stiReport, file, exportSettings);
+            outputLog(extension);
+            file.flush();
+            file.close();
+
+        } catch (Exception e) {
+
+
+        }
+        return fileName;
+    }
+
+    /**
+     * 將 stiReport 匯出JPEG檔案
+     *
+     * @param stiReport
+     * @param imageResolution
+     * @param fileName
+     */
+    private byte[] exportJpegByteArray(StiReport stiReport, int imageResolution, StiMonochromeDitheringType monochromeDitheringType) {
+        byte[] imageByteArray = null;
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        StiJpegExportService exportService = new StiJpegExportService();
+        // 輸出成JPG
+        try {
+            StiJpegExportSettings exportSettings = new StiJpegExportSettings();
+            exportSettings.setImageFormat(StiColorImageFormat.Monochrome);      // 黑白(黑白反而粗糙)
+            exportSettings.setDitheringType(monochromeDitheringType);   // 單色抖動類型
+            exportSettings.setImageType(StiImageType.Jpeg);                     // 格式"
+            exportSettings.setImageResolution(imageResolution);                 // 解析度
+            exportSettings.setExportFormat(StiExportFormat.ImageJpeg);
+            exportService.exportImage(stiReport, outputStream, exportSettings);
+            imageByteArray = outputStream.toByteArray();
+            outputStream.flush();
+            outputStream.close();
+
+        } catch (Exception e) {
+
+        }
+        return imageByteArray;
+    }
+
+    /**
+     * 直印
+     *
+     * @param printerName
+     * @param stiReport
+     * @param imageResolution
+     */
+    public void print(StiReport stiReport, int imageResolution) {
+
+        PrintService printService = getPrinter(); // 取得印表機服務
+
+        try {
+            // 指定輸出印表機
+            PrinterJob printerJob = StiPrintHelper.preparePrinterJob(stiReport.getRenderedPages()); // 產生
+            printerJob.setPrintService(printService); // 設定使用的印表機
+            StiPrintHelper.printJob(printerJob, stiReport);
+        } catch (PrinterException e) {
+            e.printStackTrace();
+        }
+        outputLog("printing Success");
+
+    }
+
+
+    /**
+     * ZPL
+     *
+     * @param zpl
+     */
+    public void printZpl(String zpl) {
+        PrintService printService = getPrinter(); // 取得印表機服務
+
+        DocPrintJob job = printService.createPrintJob();
+
+        byte[] by = zpl.getBytes();
+        DocFlavor flavor = DocFlavor.BYTE_ARRAY.AUTOSENSE;
+        Doc doc = new SimpleDoc(by, flavor, null);
+        try {
+            job.print(doc, null);
+        } catch (PrintException e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+
+    /**
+     * 取得 StiReport 物件
+     *
+     * @return
+     */
+    private StiReport getStiReport(String template, String note) {
+        StiReport stiReport = null;
+
+        // 準備合併資料
+        Map<String, String> testData = new HashMap<String, String>();
+        testData.put("CUSTINFO01_1", "EHAN");
+        testData.put("CUSTITEMDESC1_1", "BO-IC400");
+        testData.put("SSN_1", "X8XEXZ00011 [" + note + "]");
+
+        // 載入範本檔
+        try {
+            stiReport = StiSerializeManager.deserializeReport(new File(template));
+        } catch (IOException e) {
+            e.printStackTrace();
+        } catch (SAXException e) {
+            e.printStackTrace();
+        } catch (StiDeserializationException e) {
+            e.printStackTrace();
+        }
+
+        // 載入參數
+        for (Map.Entry<String, String> entry : testData.entrySet()) {
+            stiReport.setVariable(entry.getKey(), entry.getValue());
+        }
+        stiReport.Render(false);
+
+//        StiPage page = stiReport.getRenderedPages().get(0);
+        StiPage page = stiReport.pages.get(0);
+        return stiReport;
+    }
+
+
+}
