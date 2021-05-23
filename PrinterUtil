@@ -1,0 +1,89 @@
+package sfis.label;
+
+import javax.imageio.ImageIO;
+import java.awt.*;
+import java.awt.print.*;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+
+/**
+ *
+ */
+public class PrinterUtil {
+    protected PageFormat pageFormat;
+
+    PrinterJob printerJob;
+    protected double width = 178;
+    protected double height = 42;
+
+
+    public PrinterUtil(PrinterJob printerJob) {
+        this.printerJob = printerJob;
+    }
+
+    /**
+     * @param imageFile
+     */
+    public void printImage(byte[] imageByteArray, int imageResolution) {
+
+        InputStream stream = new ByteArrayInputStream(imageByteArray);
+        Image image = null;
+        try {
+            image = ImageIO.read(stream);
+            this.width = Math.floor(image.getWidth(null) * 72 / imageResolution);
+            this.height = Math.floor(image.getHeight(null) * 72 / imageResolution);
+            outputLog(String.format("this.width: %f", this.width)); // 像素
+            outputLog(String.format("this.height: %f", this.height)); // 像素
+            this.pageFormat = getFormat();
+            printImage(image);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private PageFormat getFormat() {
+        PageFormat pageFormat = new PageFormat();
+        Paper Paper = new Paper();
+        Paper.setSize(width, height);
+        Paper.setImageableArea(0, 0, width, height);
+        pageFormat.setPaper(Paper);
+        return pageFormat;
+    }
+
+    /**
+     * @param image
+     */
+    private void printImage(final Image image) {
+        Printable printable = new Printable() {
+            @Override
+            public int print(Graphics graphics, PageFormat pageFormat, int pageIndex) throws PrinterException {
+                int x = 0;
+                int y = 0;
+                graphics.drawImage(image, x, y, (int) width, (int) height, null);
+                return Printable.PAGE_EXISTS;
+            }
+        };
+        Book book = new Book();
+        book.append(printable, pageFormat);
+
+        printerJob.setPageable(book);
+        try {
+            printerJob.print();
+        } catch (PrinterException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * 輸出 Log (時間 @PiClient> )
+     *
+     * @param value
+     */
+    public void outputLog(String value) {
+        String time = new SimpleDateFormat("HH.mm.ss.SSS").format(new Date());
+        System.out.println(time + " @PiClient> " + value);
+    }
+}
