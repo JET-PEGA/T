@@ -1,0 +1,1481 @@
+    <!-- https://mvnrepository.com/artifact/org.cups4j/cups4j -->
+    <dependency>
+      <groupId>org.cups4j</groupId>
+      <artifactId>cups4j</artifactId>
+      <version>0.7.8</version>
+    </dependency>
+    
+    package sfis.raspberrypi.piclient;
+
+import javafx.application.Application;
+import javafx.event.EventHandler;
+import javafx.scene.Scene;
+import javafx.scene.input.*;
+import javafx.scene.paint.Color;
+import javafx.stage.Stage;
+import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.io.FileUtils;
+import org.cups4j.CupsClient;
+import org.cups4j.CupsPrinter;
+import org.cups4j.PrintJob;
+import sfis.raspberrypi.piclient.core.domain.*;
+import sfis.raspberrypi.piclient.core.service.EsopHelper;
+import sfis.raspberrypi.piclient.core.service.ProxyHelper;
+import sfis.raspberrypi.piclient.core.service.RC522Helper;
+import sfis.raspberrypi.piclient.core.service.Settings;
+import sfis.raspberrypi.piclient.domain.MessageStyle;
+import sfis.raspberrypi.piclient.gui.*;
+
+import javax.sound.sampled.*;
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.math.BigInteger;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+/**
+ * piclient 主類別
+ * 2020-06-16 Jet 還原
+ * 2020-11-30 Jet Print Test
+ */
+public class Main extends Application {
+
+    /**
+     * 版本號
+     */
+    String VERSION = "1.1.9.0";
+
+    /**
+     * Mic 的 Rfid Service URL
+     */
+    String RC522_SVC_RUL = "http://localhost:6999/dev/rfid";
+
+    /**
+     * 裝置編號
+     */
+    int device = 0;
+
+    boolean isLogin = false;
+
+    /**
+     * 是否等待中
+     */
+    boolean isWaiting = false;
+
+    /**
+     * 窗框
+     */
+    Stage window;
+
+    /**
+     * 主畫面
+     */
+    Scene sence_Main;
+
+    /**
+     * 設定畫面
+     */
+    Scene sence_Settings;
+
+    /**
+     * 選單畫面
+     */
+    Scene sence_Menu;
+
+    /**
+     * 選單畫面
+     */
+    Scene sence_Keyboard;
+
+
+    /**
+     * 主畫面GUI
+     */
+    MainGUI mainGUI;
+
+    /**
+     * 設定GUI
+     */
+    SettingsGUI settingsGUI;
+
+    /**
+     * 選單GUI
+     */
+    MenuGUI menuGUI;
+
+    /**
+     * 數字鍵盤GUI
+     */
+    KeyboardGUI keyboardGUI;
+
+    /**
+     * CT 組態檔
+     */
+    CTConfig ctConfig;
+
+    /**
+     * work 標題
+     */
+    String workTitle = "";
+
+    /**
+     * action 標題
+     */
+    String actionTitle = "";
+
+    /**
+     * 資源對照表
+     */
+    HashMap<String, String> resourceMap;
+
+    /**
+     * Message風格對照表
+     */
+    HashMap<String, MessageStyle> messageStyleMap;
+
+    boolean rfidStart = false;
+
+    /**
+     * 程式入口
+     *
+     * @param args 帶入參數
+     */
+    public static void main(String[] args) {
+        System.out.println("----------------------------------------------------");
+        outputLog("Start pi-client");
+        System.out.println("----------------------------------------------------");
+        launch();
+    }
+
+    /**
+     * 主畫面 起始點
+     *
+     * @param stage
+     */
+    @Override
+    public void start(Stage primaryStage) {
+
+        window = primaryStage;
+        initialize();
+
+        // 建立主畫面
+        sence_Main = createSence_Main();
+
+        // 建立設定畫面
+        sence_Settings = createSence_Settings();
+
+        // 建立選單畫面
+        sence_Menu = createSence_Menu();
+
+        // 建立數字鍵盤畫面
+        sence_Keyboard = createSence_Keyboard();
+
+        // 顯示主畫面
+        window.setScene(sence_Main);
+        window.setResizable(false);
+        window.show();
+
+        // 沒有Device,跳窗進行設定
+//        if (device == 0) {
+//            window.setScene(sence_Settings);
+//        }
+    }
+
+    // ================================================================================================================
+
+    /**
+     * 建立主畫面，設定 handle
+     *
+     * @return
+     */
+    private Scene createSence_Main() {
+        final MainGUI gui = new MainGUI(messageStyleMap);
+        this.mainGUI = gui;
+        Scene scene = new Scene(gui.getScreen(), 800, 480);
+
+        // 監聽主畫面鍵盤
+        scene.setOnKeyPressed(new EventHandler<KeyEvent>() {
+
+            /**
+             * 鍵盤事件處理
+             * @param e
+             */
+            @Override
+            public void handle(KeyEvent e) {
+
+                // 2020-05-19 配合懿軒擴充剪貼功能
+                final KeyCombination ctrl_V = new KeyCodeCombination(KeyCode.V, KeyCombination.CONTROL_DOWN);
+                if (ctrl_V.match(e)) {
+                    Clipboard clipboard = Clipboard.getSystemClipboard();
+                    gui.refreshInput(gui.pushBuffer(clipboard.getString())); // 存入Buffer 並輸出到畫面
+
+                } else if (e.getCode() == KeyCode.ESCAPE) {
+                    // 丟掉緩衝區內容
+                    outputLog("Click Esc");
+                    gui.pullBuffer();
+                    gui.refreshInput("");
+
+                } else if (e.getCode() == KeyCode.BACK_SPACE) {
+                    // 刪除最後一個字
+                    gui.refreshInput(gui.backSpace());
+
+                } else if (e.getCode() == KeyCode.F2) {
+                    //SETTINGS
+                    gui.refreshInput("");
+                    refreshSettings(settingsGUI);
+                    window.setScene(sence_Settings);
+
+                } else if (e.getCode() == KeyCode.F4) {
+                    //LOGOUT
+                    logout(gui);
+
+                } else if (e.getCode() == KeyCode.F5) {
+                    // 保留給印表機
+                    print();
+                } else if (e.getCode() == KeyCode.F6) {
+                    // UNDO
+                    undo(gui);
+
+                } else if (e.getCode() == KeyCode.F7) {
+                    // 重開機
+                    reboot();
+
+                } else if (e.getCode() == KeyCode.F8) {
+                    // 關閉程式
+                    close();
+
+                } else if (e.getCode() == KeyCode.F9) {
+                    // 關閉系統
+                    shutdown();
+
+                } else if (e.getCode() == KeyCode.F1) {
+                    // 開啟選單
+                    playSound("click.wav");
+                    window.setScene(sence_Menu);
+                } else if (e.getCode() == KeyCode.F10) {
+                    // 取得伺服器名稱
+                    getProxySvrNm(gui);
+
+                } else if (e.getCode() == KeyCode.F11) {
+                    // 測試Proxy
+                    testProxy(gui);
+
+                } else if (e.getCode() == KeyCode.F12) {
+                    // 測試DB
+                    testDB(gui);
+
+                } else if (e.getCode() == KeyCode.ENTER) {
+
+                    String input = gui.pullBuffer();
+
+
+                    if (isWaiting) {
+                        outputLog("isWaiting ");
+
+                        playSound("stop.wav");
+                        return;
+                    } else {
+                        outputLog("not isWaiting ");
+                    }
+
+                    // 判斷執行命令(先轉換小寫)
+                    execute_Main(gui, input);
+
+                } else {
+                    gui.refreshInput(gui.pushBuffer(e.getText())); // 存入Buffer 並輸出到畫面
+                }
+
+            }
+        });
+
+        // 載入組態
+        loadConfig(gui);
+
+        // 進行登出以取得提入登入訊息
+        logout(gui);
+
+        return scene;
+    }
+
+    /**
+     * @param gui
+     * @param command
+     */
+    private void execute_Main(MainGUI gui, String command) {
+        // 判斷執行命令(先轉換小寫)
+        switch (command.toLowerCase()) {
+
+            // 選單 2020-04-27
+            case "f1":
+            case "menu":
+                playSound("click.wav");
+                window.setScene(sence_Menu);
+                break;
+
+            // 開啟設定畫面
+            case "f2":
+            case "setting":
+                outputLog("execute_Main:" + command.toLowerCase());
+                playSound("click.wav");
+                gui.refreshInput("");
+                refreshSettings(settingsGUI);
+                window.setScene(sence_Settings);
+                break;
+
+            // 登出
+            case "f4":
+            case "logout":
+                logout(gui);
+
+                break;
+
+            // 登入命令不處理
+            case "f5":
+            case "login":
+                print();
+                break;
+
+            // 回復
+            case "f6":
+            case "undo":
+                playSound("click.wav");
+                gui.refreshInput("");
+                undo(gui);
+                break;
+
+            // 重開機
+            case "f7":
+            case "reboot":
+                reboot();
+                break;
+
+            // 關閉
+            case "f8":
+            case "close":
+                close();
+                break;
+
+            // 立即關機
+            case "f9":
+            case "shutdown":
+                shutdown();
+                break;
+
+            // 取得Proxy Server
+            case "f10":
+            case "gs":
+                getProxySvrNm(gui);
+                break;
+
+            // 測試 Proxy
+            case "f11":
+            case "pt":
+                testProxy(gui);
+                break;
+
+            // 測試DB
+            case "f12":
+            case "dt":
+                testDB(gui);
+                break;
+
+
+            // 提權
+            case "sudo":
+                // 提權才能使用快速鍵，將要求輸入密碼
+                gui.refreshInput("");
+                break;
+
+            // 不是列舉命令者，全Call Proxy
+            default:
+                // ok jet 處理
+
+                if (command.toLowerCase().startsWith("hi ct ")) {
+                    String say = command.toLowerCase().replace("hi ct ", "").trim();
+                    switch (say) {
+                        case "mute":
+                            amixerSet(0);
+                            break;
+                    }
+                    return;
+                }
+
+
+                // 如果是登出, 即刻進行登入
+                if (isLogin == false) {
+                    login(gui, command);
+                } else {
+                    callCentric(gui, command);
+                }
+                //gui.updateMessageText(proxyOutput.getMsg());
+
+        }
+
+    }
+
+    // ================================================================================================================
+
+    /**
+     * 建立設定畫面，設定 handle
+     *
+     * @return
+     */
+    private Scene createSence_Settings() {
+
+        final SettingsGUI gui = new SettingsGUI();
+        this.settingsGUI = gui;
+        Scene scene = new Scene(gui.getScreen(), 800, 480);
+
+        // 定義Reset按鈕點選()
+        gui.setOnAction_Reset(click -> {
+            execute_Setting(gui, "C01");
+        });
+
+        // 定義Exit按鈕點選()
+        gui.setOnAction_Exit(click -> {
+            execute_Setting(gui, "C96");
+        });
+
+        // 定義鍵盤按鍵敲下時(Scanner)
+        scene.setOnKeyPressed(new EventHandler<KeyEvent>() {
+            @Override
+            public void handle(KeyEvent e) {
+                if (e.getCode() == KeyCode.ESCAPE) {
+                    // 丟掉緩衝區內容
+                    gui.pullBuffer();
+                    gui.setDevice("");
+
+                } else if (e.getCode() == KeyCode.BACK_SPACE) {
+                    // 刪除最後一個字
+                    gui.setDevice(gui.backSpace());
+
+                } else if (e.getCode() == KeyCode.ENTER) {
+                    String input = gui.pullBuffer(); // 取出緩衝區資料
+
+                    // 若按鍵緩衝區沒有值，代表被device 文字方塊吃掉，故再將其讀回來
+                    if (input.equals("")) {
+                        input = gui.getDeviceText();
+                    }
+
+                    execute_Setting(gui, input);
+
+                    gui.requestFocus_Exit();
+                } else {
+                    gui.setDevice(gui.pushBuffer(e.getText())); // 存入Buffer 並輸出到畫面
+                }
+
+            }
+        });
+
+        return scene;
+    }
+
+    /**
+     * Settings 相關的執行命令
+     *
+     * @param gui
+     * @param command
+     */
+    private void execute_Setting(SettingsGUI gui, String command) {
+        String buffer = gui.pullBuffer(); //
+        if (!buffer.equals(""))
+            command = buffer;
+        switch (command.toLowerCase()) {
+            case "c01":
+                // 開啟數字鍵盤
+                window.setScene(sence_Keyboard);
+                keyboardGUI.requestFocus_Cancel();
+                break;
+
+            case "c02":
+                // 呼叫 Reset
+                gui.setDevice("");
+
+                try {
+                    Settings.reset(); // 重置
+                    reboot(); // 重新開機
+                } catch (PiException e) {
+                    gui.updateWarningInfo(e.getMessage());
+                }
+                break;
+
+            case "c96":
+                gui.setDevice("");
+                if (device > 0) {
+                    gui.requestFocus_Exit();
+                    window.setScene(sence_Main); // 切換回主視窗
+                } else {
+                    //
+                    gui.updateWarningInfo("Please setting device");
+
+                }
+                break;
+
+            default:
+                // 呼叫
+                try {
+                    if (gui.checkDeviceFormat()) {
+                        Settings.link(gui.getDevice());
+                        loadConfig(this.mainGUI);   // 重新載入組態
+                        logout(this.mainGUI);       // 登出
+                        refreshSettings(gui);
+                    } else {
+                        gui.updateWarningInfo("Device No. format error!"); // 刷新組態資訊(將報錯顯示出來)
+                        gui.requestFocus_Device();
+                    }
+                } catch (PiException e) {
+                    gui.updateWarningInfo(e.getMessage()); // 刷新組態資訊(將報錯顯示出來)
+                    gui.requestFocus_Device();
+                }
+                break;
+        }
+    }
+
+    // ================================================================================================================
+
+    /**
+     * 建立選單畫面，設定 handle
+     *
+     * @return
+     */
+    private Scene createSence_Menu() {
+
+        final MenuGUI gui = new MenuGUI();
+        this.menuGUI = gui;
+        Scene scene = new Scene(gui.getScreen(), 800, 480);
+
+        // 定義Prev按鈕點選()
+        gui.setOnAction_Prev(click -> {
+            execute_Menu(gui, "C01");
+
+        });
+
+        // 定義Next按鈕點選()
+        gui.setOnAction_Next(click -> {
+            execute_Menu(gui, "C02");
+
+        });
+
+        // 定義Exit按鈕點選()
+        gui.setOnAction_Exit(click -> {
+            execute_Menu(gui, "C96");
+        });
+
+        // 定義鍵盤按鍵敲下時(Scanner)
+        scene.setOnKeyPressed(new EventHandler<KeyEvent>() {
+            @Override
+            public void handle(KeyEvent e) {
+                if (e.getCode() == KeyCode.ENTER) {
+                    String input = gui.pullBuffer();
+                    System.out.println("input:" + input);
+                    // 執行命令
+                    execute_Menu(gui, input);
+
+                    // 焦點放在離開
+                    gui.requestFocus_Exit();
+                } else {
+                    gui.pushBuffer(e.getText());
+                }
+            }
+        });
+
+        return scene;
+    }
+
+
+    /**
+     * Menu 相關的執行命令
+     *
+     * @param gui
+     * @param command
+     */
+    private void execute_Menu(MenuGUI gui, String command) {
+        String buffer = gui.pullBuffer();
+        if (!buffer.equals(""))
+            command = buffer;
+        command = command.toLowerCase();
+        switch (command) {
+            case "c01":
+                // 卷軸向前捲
+                gui.scrollPrev();
+                break;
+
+            case "c02":
+                // 卷軸向後捲
+                gui.scrollNext();
+                break;
+
+            case "c03":
+                // 選取 General 頁籤
+                gui.selectGeneralTab();
+                break;
+
+            case "c04":
+                // 選取 Config 頁籤
+                gui.selectConfigTab();
+                break;
+
+            case "c96":
+                // 切換回主視窗
+                window.setScene(sence_Main);
+                break;
+
+            case "f2":
+                execute_Main(this.mainGUI, command.toLowerCase());
+                break;
+
+
+            case "s1":
+                amixerSet(0);
+                break;
+            case "s2":
+                amixerSet(75);
+                break;
+            case "s3":
+                amixerSet(95);
+                break;
+            case "s4":
+                amixerSet(100);
+                break;
+
+            case "f4":
+            case "f5":
+            case "f6":
+            case "f7":
+            case "f8":
+            case "f9":
+            case "gs":
+            case "pt":
+            case "dt":
+                outputLog(command);
+                execute_Main(this.mainGUI, command.toLowerCase());
+                window.setScene(sence_Main); // 切換回主視窗
+                break;
+
+            default:
+
+                break;
+        }
+    }
+
+    // ================================================================================================================
+
+
+    /**
+     * 建立數字鍵盤畫面，設定 handle
+     *
+     * @return
+     */
+    private Scene createSence_Keyboard() {
+
+        final KeyboardGUI gui = new KeyboardGUI();
+        this.keyboardGUI = gui;
+        Scene scene = new Scene(gui.getScreen(), 800, 480);
+
+        gui.setOnAction_7(click -> {
+            execute_Keyboard(gui, "7");
+        });
+
+        gui.setOnAction_8(click -> {
+            execute_Keyboard(gui, "8");
+        });
+
+        gui.setOnAction_9(click -> {
+            execute_Keyboard(gui, "9");
+        });
+
+        gui.setOnAction_4(click -> {
+            execute_Keyboard(gui, "4");
+        });
+
+        gui.setOnAction_5(click -> {
+            execute_Keyboard(gui, "5");
+        });
+
+        gui.setOnAction_6(click -> {
+            execute_Keyboard(gui, "6");
+        });
+
+        gui.setOnAction_1(click -> {
+            execute_Keyboard(gui, "1");
+        });
+
+        gui.setOnAction_2(click -> {
+            execute_Keyboard(gui, "2");
+        });
+
+        gui.setOnAction_3(click -> {
+            execute_Keyboard(gui, "3");
+        });
+
+        gui.setOnAction_0(click -> {
+            execute_Keyboard(gui, "0");
+        });
+
+        gui.setOnAction_Clear(click -> {
+            execute_Keyboard(gui, "CLR");
+        });
+
+        gui.setOnAction_BackSpace(click -> {
+            execute_Keyboard(gui, "BAK");
+        });
+
+        // 定義確認按鈕點選()
+        gui.setOnAction_OK(click -> {
+            execute_Keyboard(gui, "C01");
+
+        });
+
+        // 定義取消按鈕點選()
+        gui.setOnAction_Cancel(click -> {
+            execute_Keyboard(gui, "C02");
+
+        });
+
+        // 定義鍵盤按鍵敲下時(Scanner)
+        scene.setOnKeyPressed(new EventHandler<KeyEvent>() {
+            @Override
+            public void handle(KeyEvent e) {
+                if (e.getCode() == KeyCode.ENTER) {
+                    String input = gui.pullBuffer();
+                    // 執行命令
+                    execute_Keyboard(gui, input);
+
+
+                } else {
+                    gui.pushBuffer(e.getText()); // 將讀取字元塞入緩衝區
+                }
+            }
+        });
+
+        return scene;
+    }
+
+
+    /**
+     * Menu 相關的執行命令
+     *
+     * @param gui
+     * @param command
+     */
+    private void execute_Keyboard(KeyboardGUI gui, String command) {
+        String buffer = gui.pullBuffer();
+        if (!buffer.equals(""))
+            command = buffer;
+        command = command.toLowerCase();
+        outputLog("1)command:" + command);
+        switch (command) {
+
+            case "0":
+            case "1":
+            case "2":
+            case "3":
+            case "4":
+            case "5":
+            case "6":
+            case "7":
+            case "8":
+            case "9":
+                gui.inputAppend(command);
+                break;
+            case "clr":
+                gui.inputClear(command);
+                break;
+            case "bak":
+                gui.inputBackSpace(command);
+                break;
+
+            case "c01":
+                // 卷軸向前捲
+                outputLog("c01");
+                settingsGUI.setDevice(gui.getInput());
+                settingsGUI.pullBuffer(); // 清空緩衝區
+                execute_Setting(settingsGUI, gui.getInput());
+                window.setScene(sence_Settings);
+                break;
+
+
+            case "c02":
+                // 卷軸向後前捲
+                outputLog("c02");
+                window.setScene(sence_Settings);
+                break;
+        }
+
+
+        gui.requestFocus_OK();// 焦點放在OK
+    }
+
+
+    /**
+     * 關閉 piclient
+     */
+    private void close() {
+        outputLog("close");
+        playSound("shutdown.wav");
+        System.exit(0); // 關閉程式
+    }
+
+//    /**
+//     * 重啟程式 piclient
+//     */
+//    private void restart() {
+//        outputLog("restart");
+//        System.exit(0); // 關閉程式
+//    /home/pi/SFIS/App/AP000000120/piclient.jar
+//    }
+
+
+    // ================================================================================================================
+
+
+    /**
+     * 立即關機
+     */
+    private void shutdown() {
+        outputLog("shutdown");
+        ArrayList<String> command = new ArrayList<>();
+        command.add("shutdown");
+        command.add("now");
+        ProcessBuilder builder = new ProcessBuilder(command);
+        try {
+            final Process start = builder.start();
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+        playSound("shutdown.wav");
+        System.exit(0); // 關閉程式
+    }
+
+    /**
+     * 重新啟動
+     */
+    private void reboot() {
+        ArrayList<String> command = new ArrayList<>();
+        command.add("reboot");
+        ProcessBuilder builder = new ProcessBuilder(command);
+        try {
+            final Process start = builder.start();
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+        playSound("shutdown.wav");
+        System.exit(0); // 關閉程式
+    }
+
+    /**
+     * 調整音量大小
+     *
+     * @param percent 音量百分比
+     *                2020-05-21   Jet     重慶要求
+     */
+    private void amixerSet(int percent) {
+        outputLog("amixerSet");
+        ArrayList<String> command = new ArrayList<>();
+        command.add("amixer");
+        command.add("set");
+        command.add("PCM");
+        command.add("--");
+        command.add(Integer.toString(percent) + "%");
+
+        ProcessBuilder builder = new ProcessBuilder(command);
+        try {
+            final Process start = builder.start();
+        } catch (IOException ex) {
+            ex.printStackTrace();
+        }
+        playSound("beep-5.wav");
+    }
+
+
+    /**
+     * 初始化作業
+     */
+    private void initialize() {
+        messageStyleMap = initMessageStyleMap();
+
+    }
+
+    /**
+     * 載入組態
+     *
+     * @param gui 主畫面 GUI
+     */
+    private void loadConfig(MainGUI gui) {
+
+        try {
+            ctConfig = Settings.getConfig(true); // 尚未啟用
+            resourceMap = ctConfig.getResourceMap();
+            // 2020-05-19 取得自訂聲音顏色
+            addMessageStyleMap(ctConfig.getPromptMap());
+        } catch (PiException e) {
+            outputLog(e.getMessage());
+            gui.refreshMessageTile("", "", "", e.getMessage(), 999);
+
+            return;
+        }
+
+        device = ctConfig.getMACID_DEVICE();
+        // 判斷Device是否有值
+        if (device == 0) {
+            outputLog(String.format("Device=%s", device));
+//            ctConfig.getLOCAL_MAC();
+//            ctConfig.getLOCAL_IP();
+            return;
+        } else {
+            //有Device, 再次Link
+            outputLog(String.format("[Settings.link], Device=%s", device));
+            try {
+                Settings.link(device);
+            } catch (PiException e) {
+                outputLog("[Settings.link]" + e.getMessage());
+            }
+        }
+
+        try {
+            ctConfig = Settings.getConfig(true); // 尚未啟用
+
+            String group = "" + ctConfig.getMACID_GRPNM(); //
+            String line = "" + ctConfig.getMACID_LINENM(); //
+            String section = "" + ctConfig.getMACID_SECTIONNM(); //
+            String mac = "" + ctConfig.getLOCAL_MAC(); // 網卡序號
+            String ip = "" + ctConfig.getLOCAL_IP(); // IP
+            String db = "" + ctConfig.getBASE_SFIS_SID(); // 目標資料庫
+            gui.refreshConfigTile(group, line, section, Integer.toString(device), mac, ip, db, "ver. " + VERSION);
+
+            this.device = device;
+
+
+//            this.workTitle = ctConfig.getWORK_TITLE();
+//            this.actionTitle = ctConfig.getACTION_TITLE();
+            this.workTitle = resourceMap.get("WORK_TITLE");
+            this.actionTitle = resourceMap.get("ACTION_TITLE");
+
+        } catch (PiException e) {
+            outputLog("Error:" + e.getMessage());
+            gui.refreshMessageTile("", "", "", e.getMessage(), 999);
+        }
+    }
+
+    /**
+     * 登出
+     *
+     * @param gui 主畫面 gui
+     */
+    private void logout(MainGUI gui) {
+        String note = "";
+        Integer status = 0;
+        String work = "";
+        String action = "";
+        String msg = "";
+
+        gui.refreshInput("");
+
+        rfidStart = false;  // 關閉讀卡機,才可以重啟執行緒監聽讀卡機 2020-06-15 增加
+        isWaiting = true; // 註記等待輸入認證
+        CentricOutput output = new CentricOutput();
+        try {
+            output = EsopHelper.doCentric("LOGOUT");
+            status = -1; // 未登入
+            work = output.getWorkName();
+            action = output.getActionName();
+            msg = output.getP_Msg();
+            gui.refreshLoginTile("", "");
+            playSound("logoff.wav");
+            isLogin = false;
+
+//            // 尚未啟用時，啟用常讀取員工卡，以防多個執行緒同時讀取
+//            if (rfidStart == false) {
+//                new Thread(new Runnable() {
+//                    public void run() {
+//                        String uid = getUID_RC522(RC522_SVC_RUL);
+//                        if (uid != null) {
+//                            login(gui, uid);
+//                            return;
+//                        }
+//                    }
+//                }).start();
+//            }
+
+
+        } catch (PiException e) {
+            note = e.getMessage();
+            status = 999;
+            System.out.println("@PiClient> PiException:" + note);
+        }
+        gui.refreshMessageTile(this.workTitle + ":" + work, this.actionTitle + ":" + action, msg, note, status);
+        isWaiting = false; // 取消等待輸入認證
+    }
+
+    /**
+     * 登入
+     *
+     * @param gui
+     * @param value 工號
+     */
+    private void login(MainGUI gui, String value) {
+        String note = "";
+        Integer status = 0;
+        String work = "";
+        String action = "";
+        String msg = "";
+
+        String opName = "";
+        String opID = "";
+
+
+        isWaiting = true; // 註記等待輸入認證
+
+        gui.clearMessageTile(); // 清空訊息區塊
+        LoginInfo output = new LoginInfo();
+        try {
+            output = EsopHelper.login(value);
+
+            status = output.getP_Ret();
+            work = output.getWorkName();
+            action = output.getActionName();
+            msg = output.getP_Msg();
+
+            opID = output.getOp();
+            opName = output.getOpNm();
+            gui.refreshLoginTile(opID, opName);
+
+
+            // 登入成功
+            if (status == 1) {
+                rfidStart = false;  // 關閉讀卡機 2020-06-15 增加
+                outputLog(String.format("%s login", value));
+                isLogin = true;
+                playSound("logon.wav");
+            }
+
+
+        } catch (PiException e) {
+            note = e.getMessage();
+            status = 999;
+            outputLog("PiException:" + note);
+        }
+
+        playSound(status);
+        System.out.println("@PiClient> status:" + status.toString());
+        gui.refreshMessageTile(this.workTitle + "： " + work, this.actionTitle + "： " + action, msg, note, status);
+
+        isWaiting = false; // 取消等待輸入認證
+    }
+
+    /**
+     * 回復
+     *
+     * @param gui
+     */
+    private void undo(MainGUI gui) {
+        callCentric(gui, "UNDO"); // 命令是大寫
+    }
+
+    /**
+     * 呼叫 centric
+     *
+     * @param gui
+     * @param value
+     */
+    private void callCentric(MainGUI gui, String value) {
+        String note = "";
+        Integer status = 0;
+        String work = "";
+        String action = "";
+        String msg = "";
+
+        isWaiting = true; // 註記等待輸入認證
+
+        Date beginTime = new Date();
+
+        CentricOutput output = new CentricOutput();
+        try {
+            outputLog("[callCentric]: " + value);
+            gui.clearMessageTile();
+            output = EsopHelper.doCentric(value);
+            status = output.getP_Ret();
+            work = output.getWorkName();
+            action = output.getActionName();
+            msg = output.getP_Msg();
+        } catch (PiException e) {
+            note = e.getMessage();
+            status = 999;
+            outputLog("@PiClient> PiException:" + note);
+        }
+
+
+        // 計算耗時
+        Date endTime = new Date();
+        var cost = endTime.getTime() - beginTime.getTime();
+        gui.addPerformanceData(beginTime, (int) cost);
+        gui.refreshMessageTile(this.workTitle + ":" + work, this.actionTitle + ":" + action, msg, note, status);
+
+        playSound(output.getP_Ret()); // 播放聲音
+        MessageStyle style = messageStyleMap.getOrDefault(Integer.toString(output.getP_Ret()), new MessageStyle("", Color.LIME, null, null));
+        playSound(style.getAudio());
+
+        isWaiting = false; // 取消等待輸入認證
+
+
+    }
+
+
+    /**
+     * 取得伺服器名稱
+     *
+     * @param gui 2020-05-14   Jet     新增
+     */
+    private void getProxySvrNm(MainGUI gui) {
+        String note = "";
+        Integer status = 0;
+        String work = "";
+        String action = "";
+        String msg = "";
+
+        isWaiting = true; // 註記等待輸入認證
+
+        Date beginTime = new Date();
+
+        try {
+            gui.clearMessageTile();
+            status = 1;
+            work = "";
+            action = "";
+            msg = "";
+            note = ProxyHelper.getServerName();
+        } catch (PiException e) {
+            note = e.getMessage();
+            status = 999;
+        }
+
+
+        // 計算耗時
+        Date endTime = new Date();
+        var cost = endTime.getTime() - beginTime.getTime();
+        gui.addPerformanceData(beginTime, (int) cost);
+        gui.refreshMessageTile(this.workTitle + ":" + work, this.actionTitle + ":" + action, msg, note, status);
+
+        playSound(1); // 播放聲音
+        isWaiting = false; // 取消等待輸入認證
+    }
+
+    /**
+     * 測試 Proxy
+     *
+     * @param gui 2020-05-14   Jet     新增
+     */
+    private void testProxy(MainGUI gui) {
+        String note = "";
+        Integer status = 0;
+        String work = "";
+        String action = "";
+        String msg = "";
+
+        isWaiting = true; // 註記等待輸入認證
+
+        Date beginTime = new Date();
+
+        try {
+            gui.clearMessageTile();
+            status = 1;
+            work = "";
+            action = "";
+            msg = "";
+            note = ProxyHelper.testProxy();
+        } catch (PiException e) {
+            note = e.getMessage();
+            status = 999;
+
+        }
+
+
+        // 計算耗時
+        Date endTime = new Date();
+        var cost = endTime.getTime() - beginTime.getTime();
+        gui.addPerformanceData(beginTime, (int) cost);
+        gui.refreshMessageTile(this.workTitle + ":" + work, this.actionTitle + ":" + action, msg, note, status);
+
+        playSound(1); // 播放聲音
+        isWaiting = false; // 取消等待輸入認證
+    }
+
+    /**
+     * 測試 DB
+     *
+     * @param gui 2020-05-14   Jet     新增
+     */
+    private void testDB(MainGUI gui) {
+        String note = "";
+        Integer status = 0;
+        String work = "";
+        String action = "";
+        String msg = "";
+
+        isWaiting = true; // 註記等待輸入認證
+
+        Date beginTime = new Date();
+
+        try {
+            gui.clearMessageTile();
+            status = 1;
+            work = "";
+            action = "";
+            msg = "";
+            note = ProxyHelper.testDB();
+        } catch (PiException e) {
+            note = e.getMessage();
+            status = 999;
+        }
+
+
+        // 計算耗時
+        Date endTime = new Date();
+        var cost = endTime.getTime() - beginTime.getTime();
+        gui.addPerformanceData(beginTime, (int) cost);
+        gui.refreshMessageTile(this.workTitle + ":" + work, this.actionTitle + ":" + action, msg, note, status);
+
+        playSound(1); // 播放聲音
+        isWaiting = false; // 取消等待輸入認證
+    }
+
+    /**
+     * 播放音效
+     *
+     * @param status 狀態
+     */
+    public void playSound(int status) {
+
+        String name;
+        switch (status) {
+            case 0:
+                name = "beep-5.wav";
+                break;
+            default:
+                name = "beep-1.wav";
+                break;
+        }
+        playSound(name);
+    }
+
+    /**
+     * 播放音效
+     *
+     * @param name 音效名稱
+     */
+    public static synchronized void playSound(String name) {
+        // 檔案名稱空白不處理
+        if (name == null || name.isEmpty()) {
+            return;
+        }
+        new Thread(new Runnable() {
+            public void run() {
+                try {
+                    Clip clip = AudioSystem.getClip();
+                    InputStream is = new BufferedInputStream(Objects.requireNonNull(this.getClass().getClassLoader().getResourceAsStream("sound/" + name)));
+                    AudioInputStream inputStream = AudioSystem.getAudioInputStream(is);
+                    clip.open(inputStream);
+                    clip.start();
+                    Thread.sleep(clip.getMicrosecondLength() / 500);
+                    clip.close();
+
+                } catch (Exception e) {
+                    outputLog("play " + e.getMessage());
+                }
+            }
+        }).start();
+    }
+
+    /**
+     * 取得員工證 UID
+     * 2020-06-11
+     */
+    private String getUID_RC522(String url) {
+        rfidStart = true;
+        outputLog("getUID_RC522");
+        String uid = null;
+        int count = 0;
+
+        while (uid == null) {
+            try {
+                uid = RC522Helper.getInstance(url).getUID();
+                outputLog("[UID]: " + uid);
+            } catch (PiException ex) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                outputLog("[getRFID_UID] Exception:" + Integer.toString(++count) + ex.getMessage()); // Jet Tseng:測試用正式上線後刪除================================
+            }
+
+            // 跳出迴圈
+            if (rfidStart == false) {
+                return uid;
+            }
+
+            count = count % (360 * 24);
+        }
+        return uid;
+    }
+
+    /**
+     * 刷新設定畫面
+     */
+    private void refreshSettings(SettingsGUI gui) {
+
+        String info = "";
+        String device = "";
+        if (this.device != 0) {
+            device = Integer.toString(this.device);
+            info += "[MACID_DEVICE]   " + ctConfig.getMACID_DEVICE();
+            info += "\n[BASE_SFIS_SID]   " + ctConfig.getBASE_SFIS_SID();
+            info += "\n[MACID_SID]   " + ctConfig.getMACID_SID();
+            info += "\n[LOCAL_IP]   " + ctConfig.getLOCAL_IP();
+            info += "\n[MACID_APID]   " + ctConfig.getMACID_APID();
+            info += "\n[MACID_GRPNM]   " + ctConfig.getMACID_GRPNM();
+            info += "\n[MACID_SECTIONNM]   " + ctConfig.getMACID_SECTIONNM();
+            info += "\n[MACID_PAGEID]   " + ctConfig.getMACID_PAGEID();
+            info += "\n[MACID_FLAG]   " + ctConfig.getMACID_FLAG();
+            info += "\n[AppId]   " + ctConfig.getAppId();
+            info += "\n[SoaName]   " + ctConfig.getSoaName();
+            info += "\n[SoaType]   " + ctConfig.getSoaType();
+            info += "\n[SoaProject]   " + ctConfig.getSoaProject();
+            info += "\n[SoaSite]   " + ctConfig.getSoaSite();
+            info += "\n[MACID_LINENM]   " + ctConfig.getMACID_LINENM();
+
+        }
+        gui.updateInfo(info); // 刷新組態資訊
+        settingsGUI.setDevice(device); // 設定Device
+        gui.requestFocus_Device();
+    }
+
+
+    /**
+     * 初始化 Message風格對照表
+     *
+     * @return 2020-05-19 Jet 新增
+     */
+    private HashMap<String, MessageStyle> initMessageStyleMap() {
+        HashMap<String, MessageStyle> messageStyleMap = new HashMap<String, MessageStyle>();
+        messageStyleMap.put("-1", new MessageStyle("", Color.WHITE, Color.DARKGRAY, Color.DARKGRAY));       // 未登入
+        messageStyleMap.put("999", new MessageStyle("", Color.WHITE, Color.BLUE, Color.BLUE));              // 例外
+        messageStyleMap.put("0", new MessageStyle("beep-5.wav", Color.WHITE, Color.RED, null));     // 錯誤
+        messageStyleMap.put("1", new MessageStyle("beep-1.wav", Color.LIME, null, null));   // 正確
+        return messageStyleMap;
+    }
+
+
+    /**
+     * 取得自訂訊息樣式對照表
+     *
+     * @param promptMap
+     */
+    private void addMessageStyleMap(HashMap<String, PromptCfg> promptMap) {
+        promptMap.forEach((k, v) -> {
+            String audio = v.getAudio();
+            Color foreground = Color.valueOf(v.getForeground());
+
+            Color background;
+            if (v.getBackground() == null || v.getBackground().isEmpty()) {
+                background = null;
+            } else {
+                background = Color.valueOf(v.getBackground());
+            }
+            if (promptMap.containsKey(k)) {
+                messageStyleMap.remove(k);
+            }
+            messageStyleMap.put(k, new MessageStyle(audio, foreground, background, null));
+        });
+    }
+
+
+    /**
+     * 輸出 Log
+     *
+     * @param value
+     */
+    public static void outputLog(String value) {
+        String time = new SimpleDateFormat("HH.mm.ss").format(new Date());
+        System.out.println(time + " @PiClient> " + value);
+    }
+
+
+    // ----------------------------------------------------------------------------------------------------------------
+    // 列印測試
+    // ----------------------------------------------------------------------------------------------------------------
+
+    /**
+     *
+     */
+    public void print() {
+        CupsClient client = getCupsClient();
+        List<CupsPrinter> printers = null;
+        try {
+            printers = client.getPrinters();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        for (CupsPrinter p : printers) {
+            outputLog("==================================================================");
+
+            outputLog("Printer: " + p.toString());
+            outputLog("ColorModeDefault: " + p.getColorModeDefault());
+            outputLog("Description: " + p.getDescription());
+            outputLog("PrinterState: " + p.getPrinterState());
+            outputLog("ResolutionDefault: " + p.getResolutionDefault());
+            outputLog("StateMessage: " + p.getPrinterStateMessage());
+            outputLog("StateReasons: " + p.getPrinterStateReasons());
+            outputLog("MediaDefault: " + p.getMediaDefault());
+            outputLog("SidesDefault: " + p.getSidesDefault());
+            outputLog("State: " + p.getState());
+            for (String a : p.getMediaSupported()) {
+                outputLog("-: " + a);
+            }
+            p.setResolutionDefault("150,150,3");
+        }
+    }
+
+    /**
+     * @return
+     */
+    public CupsClient getCupsClient() {
+        String host = System.getProperty("host", "127.0.0.1");
+        int port = Integer.parseInt(System.getProperty("port", "631"));
+
+        try {
+            return new CupsClient(host, port);
+
+        } catch (Exception ex) {
+            throw new IllegalStateException("cannot get CUPS client for " + host + ":" + port);
+        }
+    }
+
+    private PrintJob createPrintJob(File file) {
+        return createPrintJob(file, CupsClient.DEFAULT_USER);
+    }
+
+    private PrintJob createPrintJob(File file, String userName) {
+        String jobname = generateJobnameFor(file);
+        try {
+            byte[] content = FileUtils.readFileToByteArray(file);
+            return new PrintJob.Builder(content).jobName(jobname).userName(userName).build();
+        } catch (IOException ioe) {
+            throw new IllegalArgumentException("cannot read '" + file + "'", ioe);
+        }
+    }
+
+    private String generateJobnameFor(File file) {
+        String basename = file.getName().split("\\.")[0];
+        return generateJobNameFor(basename);
+    }
+
+    private String generateJobNameFor(String basename) {
+        byte[] epochTime = Base64.encodeBase64(BigInteger.valueOf(System.currentTimeMillis()).toByteArray());
+        return basename + new String(epochTime).substring(2);
+    }
+
+
+}
