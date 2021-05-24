@@ -1,0 +1,164 @@
+package sfis.raspberrypi.piclient;
+
+import com.stimulsoft.report.StiReport;
+import com.stimulsoft.report.enums.StiExportFormat;
+import com.stimulsoft.report.export.service.StiJpegExportService;
+import com.stimulsoft.report.export.settings.StiJpegExportSettings;
+import com.stimulsoft.report.export.tools.StiColorImageFormat;
+import com.stimulsoft.report.export.tools.StiImageType;
+import com.stimulsoft.report.export.tools.StiMonochromeDitheringType;
+import com.stimulsoft.report.print.StiPrintHelper;
+
+import javax.imageio.ImageIO;
+import javax.print.PrintService;
+import java.awt.*;
+import java.awt.print.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Paths;
+
+/**
+ * Sitmulsoft 印表機
+ */
+public class SitmulsoftPrinter {
+
+    protected PrintService printService;
+
+    protected PageFormat pageFormat;
+
+//    PrinterJob printerJob;
+    protected double width = 178;
+    protected double height = 42;
+
+    /**
+     * 建構子
+     *
+     * @param printService 印表服務
+     */
+    public SitmulsoftPrinter(PrintService printService) {
+        this.printService = printService;
+
+
+    }
+
+    /**
+     * 直印
+     * @param stiReport
+     */
+    public void print(StiReport stiReport) {
+        PrinterJob printerJob = StiPrintHelper.preparePrinterJob(stiReport.getRenderedPages());
+        try {
+            printerJob.setPrintService(this.printService);
+        } catch (PrinterException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            StiPrintHelper.printJob(printerJob, stiReport, false);
+        } catch (PrinterException e) {
+            e.printStackTrace();
+        }
+
+    }
+
+
+    /**
+     * 以Jpeg印
+     * @param imageFile
+     */
+    public void printImage(StiReport stiReport, int imageResolution) {
+
+        byte[] imageByteArray = exportJpegByteArray(stiReport, imageResolution);
+
+
+        InputStream stream = new ByteArrayInputStream(imageByteArray);
+        Image image = null;
+        try {
+            image = ImageIO.read(stream);
+            this.width = Math.floor(image.getWidth(null) * 72 / imageResolution);
+            this.height = Math.floor(image.getHeight(null) * 72 / imageResolution);
+            LogUtility.println(String.format("this.width: %f", this.width)); // 像素
+            LogUtility.println(String.format("this.height: %f", this.height)); // 像素
+            this.pageFormat = getFormat();
+            printImage(image);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private PageFormat getFormat() {
+        PageFormat pageFormat = new PageFormat();
+        Paper Paper = new Paper();
+        Paper.setSize(width, height);
+        Paper.setImageableArea(0, 0, width, height);
+        pageFormat.setPaper(Paper);
+        return pageFormat;
+    }
+
+    /**
+     * @param image
+     */
+    private void printImage(final Image image) {
+        Printable printable = new Printable() {
+            @Override
+            public int print(Graphics graphics, PageFormat pageFormat, int pageIndex) throws PrinterException {
+                int x = 0;
+                int y = 0;
+                graphics.drawImage(image, x, y, (int) width, (int) height, null);
+                return Printable.PAGE_EXISTS;
+            }
+        };
+        Book book = new Book();
+        book.append(printable, pageFormat);
+
+        //
+        PrinterJob printerJob = PrinterJob.getPrinterJob();
+        try {
+            printerJob.setPrintService(printService);
+        } catch (PrinterException e) {
+            e.printStackTrace();
+        }
+
+        //
+        printerJob.setPageable(book);
+        try {
+            printerJob.print();
+        } catch (PrinterException e) {
+            e.printStackTrace();
+        }
+    }
+
+
+    /**
+     * 從 StiReport 匯出成JPEG影像位元陣列
+     *
+     * @param stiReport
+     * @param imageResolution
+     * @return
+     */
+    private byte[] exportJpegByteArray(StiReport stiReport, int imageResolution) {
+        byte[] imageByteArray = null;
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        StiJpegExportService exportService = new StiJpegExportService();
+        // 輸出成JPG
+        try {
+            StiJpegExportSettings exportSettings = new StiJpegExportSettings();
+            exportSettings.setImageFormat(StiColorImageFormat.Monochrome);      // 黑白
+            exportSettings.setDitheringType(StiMonochromeDitheringType.None);   // 單色抖動類型
+            exportSettings.setImageType(StiImageType.Jpeg);                     // 格式"
+            exportSettings.setImageResolution(imageResolution);                 // 解析度
+            exportSettings.setExportFormat(StiExportFormat.ImageJpeg);
+            exportService.exportImage(stiReport, outputStream, exportSettings);
+            imageByteArray = outputStream.toByteArray();
+            outputStream.flush();
+            outputStream.close();
+
+        } catch (Exception e) {
+
+        }
+        return imageByteArray;
+    }
+
+}
